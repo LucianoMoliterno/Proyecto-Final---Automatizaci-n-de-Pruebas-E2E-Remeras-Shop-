@@ -23,6 +23,7 @@ public class CompraSteps {
         if (driver == null) {
             driver = new ChromeDriver();
             driver.manage().window().maximize();
+            // Le damos 10 segunditos de changüí para que encuentre los elementos
             wait = new WebDriverWait(driver, Duration.ofSeconds(10));
         }
         driver.get("https://remeras-shop.vercel.app/");
@@ -31,7 +32,7 @@ public class CompraSteps {
 
     @Given("el carrito está vacío")
     public void verificarCarritoVacio() {
-        // Asumimos vacío al inicio
+        // Asumimos que arranca vacío, no nos compliquemos
     }
 
     // --- FASE 1: SELECCIÓN ---
@@ -39,27 +40,27 @@ public class CompraSteps {
     public void agregarProducto(String nombreProducto, String talle, String color, int cantidad) {
         System.out.println(">>> Intentando comprar: " + nombreProducto);
 
-        // 1. Asegurar que estamos en el Home
+        // 1. Chequeamos estar en el home, por si las dudas
         if (!driver.getCurrentUrl().contains("vercel.app") || driver.getCurrentUrl().contains("product")) {
             driver.get("https://remeras-shop.vercel.app/");
         }
 
-        // 2. ESTRATEGIA NUEVA: "Robar" el link en lugar de hacer clic
-        // Buscamos la tarjeta del producto específico
+        // 2. Truquito: En vez de clickear y esperar, buscamos el link directo del producto
+        // Armamos el xpath dinámico para encontrar la tarjeta exacta
         String xpathCard = String.format("//div[contains(@class,'product-card')][.//h3[contains(text(),'%s')]]", nombreProducto);
         WebElement card = wait.until(ExpectedConditions.presenceOfElementLocated(By.xpath(xpathCard)));
 
-        // Buscamos el enlace (tag <a>) dentro de esa tarjeta
+        // Agarramos el link <a> de esa tarjeta
         WebElement linkDetalle = card.findElement(By.tagName("a"));
 
-        // Obtenemos la URL destino
+        // Sacamos la URL a donde lleva
         String urlDetalle = linkDetalle.getAttribute("href");
         System.out.println(">>> URL detectada: " + urlDetalle);
 
-        // Navegamos directamente (esto no falla nunca)
+        // Vamos directo ahí, sin vueltas (es más robusto que el click)
         driver.get(urlDetalle);
 
-        // 3. Esperar a que cargue el selector de Talle
+        // 3. Esperamos que aparezca el selector de talle para interactuar
         WebElement selectTalle = wait.until(ExpectedConditions.visibilityOfElementLocated(By.id("size-select")));
         selectTalle.sendKeys(talle);
 
@@ -69,26 +70,26 @@ public class CompraSteps {
         inputCant.clear();
         inputCant.sendKeys(String.valueOf(cantidad));
 
-        // 5. Agregar al carrito (Aquí si usamos click JS porque es un botón real, no un link)
+        // 5. Botón de agregar (acá sí usamos JS click por si algo lo tapa)
         WebElement btnAgregar = driver.findElement(By.id("add-to-cart-btn"));
         ((JavascriptExecutor) driver).executeScript("arguments[0].click();", btnAgregar);
 
-        // Manejar alerta
+        // Si sale alerta de "Agregado", la aceptamos y seguimos
         try {
             wait.until(ExpectedConditions.alertIsPresent()).accept();
             System.out.println(">>> Alerta aceptada");
         } catch (Exception e) {
-            // Ignorar
+            // Si no sale nada, todo bien, seguimos viaje
         }
 
-        // Volver atrás para el siguiente producto
+        // Volvemos atrás para seguir comprando si hace falta
         driver.navigate().back();
     }
 
     // --- FASE 2: CARRITO ---
     @When("el cliente aplica el cupón {string}")
     public void aplicarCupon(String codigo) {
-        // Click JS al icono del carrito
+        // Click forzado al ícono del carrito
         WebElement iconCart = wait.until(ExpectedConditions.elementToBeClickable(By.cssSelector("a.cart-icon")));
         ((JavascriptExecutor) driver).executeScript("arguments[0].click();", iconCart);
 
@@ -98,7 +99,7 @@ public class CompraSteps {
 
     @When("el cliente inicia el checkout")
     public void iniciarCheckout() {
-        // Usamos JS Click por si el footer tapa el botón
+        // Click con JS por si el footer molesta
         WebElement btn = wait.until(ExpectedConditions.presenceOfElementLocated(By.id("checkout-btn")));
         ((JavascriptExecutor) driver).executeScript("arguments[0].click();", btn);
     }
@@ -117,7 +118,7 @@ public class CompraSteps {
 
     @When("el cliente selecciona el método de envío {string}")
     public void seleccionarEnvio(String tipo) {
-        String val = tipo.toLowerCase(); // 'normal'
+        String val = tipo.toLowerCase(); // lo pasamos a minúscula por las dudas
         WebElement radio = driver.findElement(By.xpath("//input[@name='shipping'][@value='" + val + "']"));
         ((JavascriptExecutor) driver).executeScript("arguments[0].click();", radio);
     }
@@ -146,9 +147,9 @@ public class CompraSteps {
     // --- FASE 4: VALIDACIONES ---
     @Then("el sistema muestra el estado de pago {string}")
     public void validarEstado(String estado) {
-        // Aumentamos espera porque el procesamiento puede tardar
+        // Le damos tiempo extra (30s) porque a veces el servidor tarda en procesar
         WebDriverWait longWait = new WebDriverWait(driver, Duration.ofSeconds(30));
-        // Buscamos cualquier elemento que contenga el texto
+        // Buscamos que aparezca el texto de confirmación
         WebElement msg = longWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//*[contains(text(),'Pago confirmado')]")));
         Assert.assertTrue(msg.getText().contains(estado));
     }
@@ -156,8 +157,10 @@ public class CompraSteps {
     @Then("el sistema muestra un número de pedido con prefijo {string}")
     public void validarOrden(String prefijo) {
         WebDriverWait longWait = new WebDriverWait(driver, Duration.ofSeconds(30));
-        // Buscamos cualquier elemento que contenga el prefijo (ej. ORD-)
-        WebElement orden = longWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//*[contains(text(),'" + prefijo + "')]")));
+        // Buscamos el número de orden, usando contains(.) para que busque en el texto visible, incluso si está dentro de etiquetas hijas
+        WebElement orden = longWait.until(ExpectedConditions.visibilityOfElementLocated(
+            By.xpath("//*[contains(., '" + prefijo + "') and not(self::script) and not(self::style)]")
+        ));
         Assert.assertTrue(orden.getText().contains(prefijo));
     }
 
@@ -178,10 +181,10 @@ public class CompraSteps {
     @Then("el botón {string} está visible y habilitado")
     public void validarBotonFinal(String txt) {
         WebDriverWait longWait = new WebDriverWait(driver, Duration.ofSeconds(30));
-        // Buscamos botón o enlace que diga "Volver" (puede ser <a> o <button>)
+        // Buscamos el botón de volver para cerrar el ciclo
         WebElement btn = longWait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//*[contains(text(),'Volver')]")));
         Assert.assertTrue(btn.isDisplayed());
         Assert.assertTrue(btn.isEnabled());
-        driver.quit(); // CERRAR AL FINAL
+        driver.quit(); // Cerramos el boliche
     }
 }
